@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import type { InstRow } from '@/app/api/institutional/route';
 
-interface Res { data: InstRow[]; updatedAt: string }
+interface Res { data: InstRow[]; updatedAt: string; error?: string }
 
 function fmtCap(n: number) {
   if (n >= 1e12) return `$${(n/1e12).toFixed(1)}T`;
@@ -14,15 +14,18 @@ function fmtCap(n: number) {
 export default function InstitutionalOwnership() {
   const [res, setRes]      = useState<Res | null>(null);
   const [loading, setLoad] = useState(true);
-  const [error, setError]  = useState('');
   const [open, setOpen]    = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/institutional').then(r => r.json()).then(d => { if (d?.error) throw new Error(d.error); setRes(d); }).catch(() => setError('fetch failed')).finally(() => setLoad(false));
+    fetch('/api/institutional')
+      .then(r => r.json())
+      .then(setRes)
+      .catch(() => setRes({ data: [], updatedAt: '', error: 'fetch failed' }))
+      .finally(() => setLoad(false));
   }, []);
 
   if (loading) return <Skel />;
-  if (error || !res) return <Err msg={error} />;
+  if (!res || res.data.length === 0) return <Err msg={res?.error ?? 'No data'} />;
 
   return (
     <div className="p-6">
@@ -31,7 +34,6 @@ export default function InstitutionalOwnership() {
         <div className="flex-1 h-px bg-t-border" />
         <span className="text-t-dim">UPD {new Date(res.updatedAt).toLocaleTimeString()}</span>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
@@ -68,21 +70,17 @@ export default function InstitutionalOwnership() {
                     </td>
                     <td className="px-3 py-2 text-center">
                       {row.signal && (
-                        <span className="text-[10px] px-2 py-0.5 border border-t-green text-t-green rounded tracking-widest">
-                          ▲ INST+RS
-                        </span>
+                        <span className="text-[10px] px-2 py-0.5 border border-t-green text-t-green rounded tracking-widest">▲ INST+RS</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-center">
                       {row.topHolders.length > 0 && (
-                        <button onClick={() => setOpen(isOpen ? null : row.ticker)}
-                          className="text-[10px] text-t-dim hover:text-t-text transition-colors">
+                        <button onClick={() => setOpen(isOpen ? null : row.ticker)} className="text-[10px] text-t-dim hover:text-t-text transition-colors">
                           {isOpen ? '▲ HIDE' : '▼ SHOW'}
                         </button>
                       )}
                     </td>
                   </tr>
-
                   {isOpen && (
                     <tr className="bg-t-surface/80">
                       <td colSpan={10} className="px-8 py-3">
@@ -117,11 +115,16 @@ export default function InstitutionalOwnership() {
         </table>
       </div>
       <p className="mt-3 text-[10px] text-t-dim border border-t-border/50 p-2 rounded">
-        <span className="text-t-amber">▲ NOTE:</span> INST % from 13F filings (quarterly lag). INST+RS = inst% &gt; 50% AND RS vs QQQ &gt; +5%.
+        <span className="text-t-amber">▲ NOTE:</span> INST % from 13F filings. INST+RS = inst% &gt; 50% AND RS vs QQQ &gt; +5%.
       </p>
     </div>
   );
 }
 
 const Skel = () => <div className="p-6 space-y-2">{Array.from({length:15}).map((_,i)=><div key={i} className="h-8 bg-t-surface rounded animate-pulse"/>)}</div>;
-const Err  = ({ msg }: { msg: string }) => <div className="p-6 text-t-red text-xs">✕ {msg}</div>;
+const Err  = ({ msg }: { msg: string }) => (
+  <div className="p-6">
+    <div className="text-t-red text-xs mb-1">✕ API ERROR</div>
+    <div className="text-t-dim text-[11px]">{msg}</div>
+  </div>
+);
