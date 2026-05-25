@@ -27,7 +27,7 @@ export default function EarningsGap() {
   const [filter, setFilter] = useState<Filter>('ALL');
 
   useEffect(() => {
-    fetch('/api/earnings').then(r => r.json()).then(setRes).catch(() => setError('fetch failed')).finally(() => setLoad(false));
+    fetch('/api/earnings').then(r => r.json()).then(d => { if (d?.error) throw new Error(d.error); setRes(d); }).catch(() => setError('fetch failed')).finally(() => setLoad(false));
   }, []);
 
   if (loading) return <Skel />;
