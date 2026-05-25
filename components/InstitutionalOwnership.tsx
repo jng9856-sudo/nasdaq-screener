@@ -18,7 +18,7 @@ export default function InstitutionalOwnership() {
   const [open, setOpen]    = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/institutional').then(r => r.json()).then(setRes).catch(() => setError('fetch failed')).finally(() => setLoad(false));
+    fetch('/api/institutional').then(r => r.json()).then(d => { if (d?.error) throw new Error(d.error); setRes(d); }).catch(() => setError('fetch failed')).finally(() => setLoad(false));
   }, []);
 
   if (loading) return <Skel />;
