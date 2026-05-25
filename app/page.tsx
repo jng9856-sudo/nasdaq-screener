@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import SectorRotation from '@/components/SectorRotation';
 import InstitutionalOwnership from '@/components/InstitutionalOwnership';
 import EarningsGap from '@/components/EarningsGap';
@@ -8,17 +8,25 @@ import EarningsGap from '@/components/EarningsGap';
 type Tab = 'sector' | 'institutional' | 'earnings';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'sector',        label: '01 · SECTOR ROTATION'  },
-  { id: 'institutional', label: '02 · INSTITUTIONAL'     },
-  { id: 'earnings',      label: '03 · EARNINGS GAP'      },
+  { id: 'sector',        label: '01 · SECTOR ROTATION' },
+  { id: 'institutional', label: '02 · INSTITUTIONAL'    },
+  { id: 'earnings',      label: '03 · EARNINGS GAP'     },
 ];
 
 export default function Home() {
-  const [tab, setTab] = useState<Tab>('sector');
+  const [tab, setTab]       = useState<Tab>('sector');
+  const [clock, setClock]   = useState('');
+
+  // Clock only runs client-side — avoids hydration mismatch
+  useEffect(() => {
+    const tick = () => setClock(new Date().toUTCString().slice(0, 22) + ' UTC');
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header className="border-b border-t-border px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-t-green text-xs">▶</span>
@@ -26,11 +34,10 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-2 text-[11px] text-t-dim">
           <span className="w-1.5 h-1.5 rounded-full bg-t-green live inline-block" />
-          LIVE · {new Date().toUTCString().slice(0, 22)} UTC
+          {clock && <span>LIVE · {clock}</span>}
         </div>
       </header>
 
-      {/* Tabs */}
       <nav className="border-b border-t-border px-6 flex">
         {TABS.map((t) => (
           <button
@@ -46,7 +53,6 @@ export default function Home() {
         ))}
       </nav>
 
-      {/* Content */}
       <main className="flex-1 overflow-auto">
         {tab === 'sector'        && <SectorRotation />}
         {tab === 'institutional' && <InstitutionalOwnership />}
