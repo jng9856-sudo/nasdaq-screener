@@ -1,7 +1,5 @@
-const UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-// ─── Crumb cache (module-level, reused within same serverless instance) ───────
 let _crumb = '';
 let _cookie = '';
 let _crumbExpiry = 0;
@@ -9,26 +7,69 @@ let _crumbExpiry = 0;
 async function ensureCrumb(): Promise<void> {
   if (_crumb && Date.now() < _crumbExpiry) return;
 
-  // 1) Get session cookie
-  const r1 = await fetch('https://finance.yahoo.com/', {
-    headers: { 'User-Agent': UA, Accept: 'text/html' },
-    redirect: 'follow',
-  });
-  const raw = r1.headers.get('set-cookie') ?? '';
-  // grab the A1 cookie value used by Yahoo
-  const a1 = raw.match(/A1=([^;,\s]+)/)?.[1];
-  _cookie = a1 ? `A1=${a1}` : raw.split(';')[0] ?? '';
+  // Try multiple methods to get a valid session cookie
+  const cookieMethods = [
+    // Method 1: fc.yahoo.com redirect (manual = don't follow, grab cookie from redirect)
+    async () => {
+      const r = await fetch('https://fc.yahoo.com', {
+        headers: { 'User-Agent': UA },
+        redirect: 'manual',
+      });
+      return r.headers.get('set-cookie') ?? '';
+    },
+    // Method 2: finance.yahoo.com direct
+    async () => {
+      const r = await fetch('https://finance.yahoo.com', {
+        headers: { 'User-Agent': UA, Accept: 'text/html' },
+      });
+      // Node 18+ supports getSetCookie() returning array
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fn = (r.headers as any).getSetCookie;
+      if (typeof fn === 'function') {
+        const arr: string[] = (fn as () => string[]).call(r.headers);
+        return arr.join(', ');
+      }
+      return r.headers.get('set-cookie') ?? '';
+    },
+  ];
 
-  // 2) Get crumb token
+  for (const method of cookieMethods) {
+    try {
+      const raw = await method();
+      if (!raw) continue;
+      // Extract all name=value pairs before semicolons and join
+      const pairs = raw.split(/,(?=[^;]+=[^;]+;)/).map((s) => s.trim().split(';')[0]);
+      _cookie = pairs.join('; ');
+      if (_cookie) break;
+    } catch {
+      // try next method
+    }
+  }
+
+  if (!_cookie) throw new Error('Could not obtain Yahoo Finance session cookie');
+
   const r2 = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
     headers: { 'User-Agent': UA, Cookie: _cookie },
   });
-  if (!r2.ok) throw new Error(`getcrumb failed: ${r2.status}`);
-  _crumb = await r2.text();
-  _crumbExpiry = Date.now() + 3_600_000; // 1 hr
+  if (!r2.ok) throw new Error(`getcrumb HTTP ${r2.status}`);
+  _crumb = (await r2.text()).trim();
+  if (!_crumb || _crumb.includes('<')) throw new Error('Invalid crumb response');
+  _crumbExpiry = Date.now() + 3_600_000;
 }
 
 async function yf(path: string, params: Record<string, string> = {}): Promise<unknown> {
+  // For chart data, try unauthenticated query2 first (faster, often works)
+  if (path.startsWith('/v8/finance/chart/')) {
+    try {
+      const url = new URL(`https://query2.finance.yahoo.com${path}`);
+      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+      const r = await fetch(url.toString(), { headers: { 'User-Agent': UA } });
+      if (r.ok) return r.json();
+    } catch {
+      // fall through to crumb method
+    }
+  }
+
   await ensureCrumb();
   const url = new URL(`https://query1.finance.yahoo.com${path}`);
   url.searchParams.set('crumb', _crumb);
@@ -41,7 +82,7 @@ async function yf(path: string, params: Record<string, string> = {}): Promise<un
   return res.json();
 }
 
-// ─── Public helpers ────────────────────────────────────────────────────────────
+// ── Public types ──────────────────────────────────────────────────────────────
 
 export interface YFQuote {
   symbol: string;
@@ -53,7 +94,7 @@ export interface YFQuote {
 }
 
 export interface YFBar {
-  date: number; // unix timestamp
+  date: number;
   open: number;
   high: number;
   low: number;
@@ -61,7 +102,8 @@ export interface YFBar {
   volume: number;
 }
 
-/** Single or multi-quote (comma-separated symbols) */
+// ── Public helpers ─────────────────────────────────────────────────────────────
+
 export async function getQuotes(symbols: string | string[]): Promise<YFQuote[]> {
   const sym = Array.isArray(symbols) ? symbols.join(',') : symbols;
   const data = (await yf('/v7/finance/quote', { symbols: sym })) as {
@@ -70,7 +112,6 @@ export async function getQuotes(symbols: string | string[]): Promise<YFQuote[]> 
   return data.quoteResponse?.result ?? [];
 }
 
-/** OHLCV bars */
 export async function getChart(
   ticker: string,
   period1: number,
@@ -85,29 +126,29 @@ export async function getChart(
     chart: {
       result: {
         timestamp: number[];
-        indicators: { quote: { open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] }[] };
+        indicators: {
+          quote: { open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] }[];
+        };
       }[];
     };
   };
 
   const result = data.chart?.result?.[0];
   if (!result) return [];
-
   const ts = result.timestamp ?? [];
   const q = result.indicators?.quote?.[0];
   if (!q) return [];
 
   return ts.map((t, i) => ({
-    date: t,
-    open: q.open[i] ?? 0,
-    high: q.high[i] ?? 0,
-    low: q.low[i] ?? 0,
-    close: q.close[i] ?? 0,
+    date:   t,
+    open:   q.open[i]   ?? 0,
+    high:   q.high[i]   ?? 0,
+    low:    q.low[i]    ?? 0,
+    close:  q.close[i]  ?? 0,
     volume: q.volume[i] ?? 0,
   }));
 }
 
-/** quoteSummary modules */
 export async function getQuoteSummary(
   ticker: string,
   modules: string[]
@@ -118,12 +159,10 @@ export async function getQuoteSummary(
   return data.quoteSummary?.result?.[0] ?? {};
 }
 
-/** Helper: unix timestamp for N days ago */
 export function daysAgo(n: number): number {
   return Math.floor((Date.now() - n * 86_400_000) / 1000);
 }
 
-/** Batch runner with concurrency and delay */
 export async function batch<T>(
   items: string[],
   fn: (t: string) => Promise<T>,
@@ -132,8 +171,7 @@ export async function batch<T>(
 ): Promise<PromiseSettledResult<T>[]> {
   const out: PromiseSettledResult<T>[] = [];
   for (let i = 0; i < items.length; i += size) {
-    const slice = items.slice(i, i + size);
-    const res = await Promise.allSettled(slice.map(fn));
+    const res = await Promise.allSettled(items.slice(i, i + size).map(fn));
     out.push(...res);
     if (i + size < items.length) await new Promise((r) => setTimeout(r, delayMs));
   }
