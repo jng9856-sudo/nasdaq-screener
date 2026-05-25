@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { InstRow } from '@/app/api/institutional/route';
 
 interface Res { data: InstRow[]; updatedAt: string }
@@ -52,8 +52,8 @@ export default function InstitutionalOwnership() {
             {res.data.map((row, i) => {
               const isOpen = open === row.ticker;
               return (
-                <>
-                  <tr key={row.ticker} className="border-b border-t-border/40 hover:bg-t-surface/60 transition-colors">
+                <Fragment key={row.ticker}>
+                  <tr className="border-b border-t-border/40 hover:bg-t-surface/60 transition-colors">
                     <td className="px-3 py-2 text-t-dim">{i + 1}</td>
                     <td className="px-3 py-2 font-bold text-t-blue">{row.ticker}</td>
                     <td className="px-3 py-2 max-w-[160px] truncate">{row.name}</td>
@@ -84,7 +84,7 @@ export default function InstitutionalOwnership() {
                   </tr>
 
                   {isOpen && (
-                    <tr key={`${row.ticker}-exp`} className="bg-t-surface/80">
+                    <tr className="bg-t-surface/80">
                       <td colSpan={10} className="px-8 py-3">
                         <p className="text-[10px] text-t-dim mb-2 tracking-widest">TOP HOLDERS — {row.ticker}</p>
                         <table className="w-full text-[11px]">
@@ -110,7 +110,7 @@ export default function InstitutionalOwnership() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>
