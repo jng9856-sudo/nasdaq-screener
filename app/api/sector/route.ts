@@ -63,6 +63,6 @@ export async function GET() {
     return NextResponse.json({ data: rows, benchmark, updatedAt: new Date().toISOString() });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ data: [], benchmark: null, error: msg }, { status: 200 });
   }
 }
